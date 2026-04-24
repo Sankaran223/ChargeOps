@@ -30,10 +30,30 @@ const paymentSchema = new mongoose.Schema(
       enum: PAYMENT_METHODS,
       required: true
     },
+    provider: {
+      type: String,
+      default: "stripe"
+    },
+    currency: {
+      type: String,
+      default: "usd"
+    },
     transactionId: {
       type: String,
       required: true,
       unique: true,
+      index: true
+    },
+    stripeSessionId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true
+    },
+    stripePaymentIntentId: {
+      type: String,
+      unique: true,
+      sparse: true,
       index: true
     }
   },
@@ -50,7 +70,11 @@ paymentSchema.methods.toSanitizedJSON = function toSanitizedJSON() {
     amount: this.amount,
     status: this.status,
     paymentMethod: this.paymentMethod,
+    provider: this.provider,
+    currency: this.currency,
     transactionId: this.transactionId,
+    stripeSessionId: this.stripeSessionId,
+    stripePaymentIntentId: this.stripePaymentIntentId,
     createdAt: this.createdAt,
     updatedAt: this.updatedAt
   };

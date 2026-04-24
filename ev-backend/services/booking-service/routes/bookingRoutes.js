@@ -28,9 +28,9 @@ router.get("/health", (req, res) => {
   });
 });
 
-router.post("/", authenticate, authorize("customer", "admin"), validateRequest(createBookingSchema), asyncHandler(createBooking));
+router.post("/", authenticate, authorize("customer", "admin", "station"), validateRequest(createBookingSchema), asyncHandler(createBooking));
 router.patch("/:bookingId/cancel", authenticate, validateRequest(bookingIdSchema), asyncHandler(cancelBooking));
-router.get("/me", authenticate, authorize("customer", "admin"), asyncHandler(getUserBookings));
+router.get("/me", authenticate, authorize("customer", "admin", "station"), asyncHandler(getUserBookings));
 router.get("/admin/all", authenticate, authorize("admin"), asyncHandler(getAllBookings));
 router.get(
   "/station/:stationId",

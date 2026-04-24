@@ -1,23 +1,29 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import Card from "../components/Card.jsx";
 import Loader from "../components/Loader.jsx";
 import Sidebar from "../components/Sidebar.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { adminApi, stationApi } from "../services/api.js";
 
-const initialFilters = {
-  state: "",
-  district: "",
-  chargerType: "",
-  address: ""
+const PAGE_SIZE = 6;
+const normalizeSearchInput = (value = "") => value.replace(/\s+/g, " ").trim();
+const getInitialFilters = (search) => {
+  const params = new URLSearchParams(search);
+
+  return {
+    q: params.get("search") || "",
+    state: "",
+    district: "",
+    chargerType: "",
+    address: ""
+  };
 };
 
-const PAGE_SIZE = 6;
-
 const Stations = () => {
+  const location = useLocation();
   const { user } = useAuth();
-  const [filters, setFilters] = useState(initialFilters);
+  const [filters, setFilters] = useState(() => getInitialFilters(location.search));
   const [stations, setStations] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,7 +36,11 @@ const Stations = () => {
     try {
       const params = Object.fromEntries(
         Object.entries({
-          ...nextFilters,
+          q: normalizeSearchInput(nextFilters.q),
+          state: normalizeSearchInput(nextFilters.state),
+          district: normalizeSearchInput(nextFilters.district),
+          chargerType: normalizeSearchInput(nextFilters.chargerType),
+          address: normalizeSearchInput(nextFilters.address),
           isApproved: user?.role === "admin" ? undefined : true
         }).filter(([, value]) => value !== "" && value !== undefined)
       );
@@ -45,8 +55,10 @@ const Stations = () => {
   };
 
   useEffect(() => {
-    loadStations();
-  }, []);
+    const nextFilters = getInitialFilters(location.search);
+    setFilters(nextFilters);
+    loadStations(nextFilters);
+  }, [location.search]);
 
   const totalPages = Math.max(1, Math.ceil(stations.length / PAGE_SIZE));
   const paginatedStations = stations.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -68,6 +80,13 @@ const Stations = () => {
       <div className="flex-1 space-y-6">
         <Card title="Stations" subtitle="Live Network">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <input
+              name="q"
+              value={filters.q}
+              onChange={handleFilterChange}
+              placeholder="Search stations"
+              className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white outline-none placeholder:text-slate-500 md:col-span-2 xl:col-span-4"
+            />
             <input
               name="state"
               value={filters.state}
@@ -109,8 +128,9 @@ const Stations = () => {
             <button
               type="button"
               onClick={() => {
-                setFilters(initialFilters);
-                loadStations(initialFilters);
+                const resetFilters = { q: "", state: "", district: "", chargerType: "", address: "" };
+                setFilters(resetFilters);
+                loadStations(resetFilters);
               }}
               className="rounded-full border border-white/10 px-5 py-2.5 text-sm font-semibold text-slate-200"
             >
@@ -160,7 +180,7 @@ const Stations = () => {
                 <div className="mt-5 space-y-2 text-sm text-slate-300">
                   <p>{station.location.address}</p>
                   <p>Charger: {station.chargerType}</p>
-                  <p>Price: Rs. {station.pricePerUnit} / unit</p>
+                  <p>Price: {"$"}{station.pricePerUnit} / unit</p>
                   <p>Slots: {station.availability.slots}</p>
                 </div>
               </div>
@@ -187,8 +207,8 @@ const Stations = () => {
         </section>
 
         {!isLoading && !errorMessage && stations.length > 0 ? (
-          <Card title="Pagination" subtitle="Browse Results">
-            <div className="flex flex-wrap items-center gap-3">
+          <Card>
+            <div className="flex flex-wrap items-center justify-center gap-3">
               <button
                 type="button"
                 onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
@@ -198,7 +218,7 @@ const Stations = () => {
                 Previous
               </button>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap justify-center gap-2">
                 {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
                   <button
                     key={page}
