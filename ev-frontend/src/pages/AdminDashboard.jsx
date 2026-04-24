@@ -49,7 +49,7 @@ const AdminDashboard = () => {
             {[
               { label: "Total Users", value: analytics.totalUsers },
               { label: "Total Bookings", value: analytics.totalBookings },
-              { label: "Total Revenue", value: `Rs. ${analytics.totalRevenue}` },
+              { label: "Total Revenue", value: `$${analytics.totalRevenue}` },
               { label: "Successful Payments", value: analytics.successfulPayments }
             ].map((item) => (
               <Card key={item.label} title={item.label}>

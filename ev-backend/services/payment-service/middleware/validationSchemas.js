@@ -5,11 +5,28 @@ const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid resource i
 export const createPaymentSchema = z.object({
   body: z.object({
     bookingId: objectIdSchema,
-    amount: z.number().min(0),
+    amount: z.coerce.number().min(0),
     paymentMethod: z.enum(["card", "upi", "wallet", "netbanking"])
   }),
   params: z.object({}).default({}),
   query: z.object({}).default({})
+});
+
+export const createMockPaymentSchema = z.object({
+  body: z.object({
+    bookingId: objectIdSchema,
+    amount: z.coerce.number().min(0)
+  }),
+  params: z.object({}).default({}),
+  query: z.object({}).default({})
+});
+
+export const verifyStripeSessionSchema = z.object({
+  body: z.object({}).default({}),
+  params: z.object({}).default({}),
+  query: z.object({
+    session_id: z.string().min(1, "Session id is required")
+  })
 });
 
 export const paymentIdSchema = z.object({

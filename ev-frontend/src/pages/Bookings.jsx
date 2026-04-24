@@ -1,36 +1,65 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import Card from "../components/Card.jsx";
 import Loader from "../components/Loader.jsx";
 import Sidebar from "../components/Sidebar.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { bookingApi, paymentApi } from "../services/api.js";
+import { bookingApi, paymentApi, stationApi } from "../services/api.js";
 
 const defaultForm = {
   stationId: "",
   slotTime: "",
+  units: "1",
   amount: ""
+};
+
+const STRIPE_MIN_BOOKING_AMOUNT = 0.5;
+
+const getBookingAmount = (station, units) => {
+  const pricePerUnit = Number(station?.pricePerUnit || 0);
+  const normalizedUnits = Math.max(1, Number(units) || 1);
+
+  return pricePerUnit * normalizedUnits;
 };
 
 const Bookings = () => {
   const { state } = useLocation();
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [bookingForm, setBookingForm] = useState(defaultForm);
   const [bookings, setBookings] = useState([]);
+  const [stations, setStations] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPaying, setIsPaying] = useState("");
+  const [isMockPaying, setIsMockPaying] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [stationLoadError, setStationLoadError] = useState("");
 
   useEffect(() => {
     if (state?.selectedStation) {
       setBookingForm({
         stationId: state.selectedStation.id,
         slotTime: "",
-        amount: String(state.selectedStation.pricePerUnit)
+        units: "1",
+        amount: String(getBookingAmount(state.selectedStation, 1))
       });
     }
   }, [state]);
+
+  useEffect(() => {
+    const loadStations = async () => {
+      try {
+        const { data } = await stationApi.list({ isApproved: true });
+        setStations(data.data || []);
+      } catch (error) {
+        setStationLoadError(error.response?.data?.message || "Unable to load stations for booking.");
+      }
+    };
+
+    loadStations();
+  }, []);
 
   const loadBookings = async () => {
     setIsLoading(true);
@@ -48,6 +77,40 @@ const Bookings = () => {
     loadBookings();
   }, []);
 
+  useEffect(() => {
+    const paymentState = searchParams.get("payment");
+
+    if (paymentState === "cancelled") {
+      setErrorMessage("Stripe checkout was cancelled.");
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  const selectedStation = stations.find((station) => station.id === bookingForm.stationId) || state?.selectedStation || null;
+  const computedAmount = selectedStation ? getBookingAmount(selectedStation, bookingForm.units) : 0;
+  const isBelowStripeMinimum = Boolean(selectedStation) && computedAmount < STRIPE_MIN_BOOKING_AMOUNT;
+
+  const handleStationChange = (event) => {
+    const stationId = event.target.value;
+    const station = stations.find((entry) => entry.id === stationId);
+
+    setBookingForm((current) => ({
+      ...current,
+      stationId,
+      amount: station ? String(getBookingAmount(station, current.units)) : ""
+    }));
+  };
+
+  const handleUnitsChange = (event) => {
+    const units = event.target.value;
+
+    setBookingForm((current) => ({
+      ...current,
+      units,
+      amount: selectedStation ? String(getBookingAmount(selectedStation, units)) : ""
+    }));
+  };
+
   const createBooking = async (event) => {
     event.preventDefault();
     setIsSubmitting(true);
@@ -55,10 +118,14 @@ const Bookings = () => {
     setSuccessMessage("");
 
     try {
+      if (selectedStation && computedAmount < STRIPE_MIN_BOOKING_AMOUNT) {
+        throw new Error(`Minimum booking total for Stripe is $${STRIPE_MIN_BOOKING_AMOUNT}. Increase the units to continue.`);
+      }
+
       await bookingApi.create({
         stationId: bookingForm.stationId,
         slotTime: bookingForm.slotTime,
-        amount: Number(bookingForm.amount)
+        amount: computedAmount
       });
       setSuccessMessage("Booking created successfully.");
       setBookingForm(defaultForm);
@@ -76,13 +143,50 @@ const Bookings = () => {
   };
 
   const payBooking = async (booking) => {
-    await paymentApi.create({
-      bookingId: booking.id,
-      amount: booking.amount,
-      paymentMethod: "card"
-    });
-    setSuccessMessage("Payment completed successfully.");
-    loadBookings();
+    setIsPaying(booking.id);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const { data } = await paymentApi.create({
+        bookingId: booking.id,
+        amount: Number(booking.amount),
+        paymentMethod: "card"
+      });
+
+      if (data?.data?.checkoutUrl) {
+        window.location.href = data.data.checkoutUrl;
+        return;
+      }
+
+      throw new Error("Stripe checkout URL was not returned.");
+    } catch (error) {
+      const validationErrors = error.response?.data?.errors
+        ?.map((issue) => `${issue.field}: ${issue.message}`)
+        .join(", ");
+      setErrorMessage(validationErrors || error.response?.data?.message || error.message || "Unable to start Stripe checkout.");
+      setIsPaying("");
+    }
+  };
+
+  const mockPayBooking = async (booking) => {
+    setIsMockPaying(booking.id);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      await paymentApi.mockPay({
+        bookingId: booking.id,
+        amount: Number(booking.amount)
+      });
+
+      setSuccessMessage("Payment completed successfully.");
+      await loadBookings();
+    } catch (error) {
+      setErrorMessage(error.response?.data?.message || error.message || "Unable to complete dummy payment.");
+    } finally {
+      setIsMockPaying("");
+    }
   };
 
   return (
@@ -93,13 +197,19 @@ const Bookings = () => {
         <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
           <Card title="Book a Charging Slot" subtitle="New Booking">
             <form className="space-y-4" onSubmit={createBooking}>
-              <input
+              <select
                 value={bookingForm.stationId}
-                onChange={(event) => setBookingForm((current) => ({ ...current, stationId: event.target.value }))}
-                placeholder="Station ID"
-                className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white placeholder:text-slate-500"
+                onChange={handleStationChange}
+                className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white"
                 required
-              />
+              >
+                <option value="">Select station</option>
+                {stations.map((station) => (
+                  <option key={station.id} value={station.id}>
+                    {station.name} - {"$"}{station.pricePerUnit}
+                  </option>
+                ))}
+              </select>
               <input
                 type="datetime-local"
                 value={bookingForm.slotTime}
@@ -109,27 +219,52 @@ const Bookings = () => {
               />
               <input
                 type="number"
+                min="1"
+                step="1"
+                value={bookingForm.units}
+                onChange={handleUnitsChange}
+                className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white"
+                placeholder="Units"
+                required
+              />
+              <input
+                type="number"
                 min="0"
-                value={bookingForm.amount}
-                onChange={(event) => setBookingForm((current) => ({ ...current, amount: event.target.value }))}
-                placeholder="Amount"
+                value={selectedStation ? computedAmount : bookingForm.amount}
+                readOnly
+                placeholder="Total amount"
                 className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white placeholder:text-slate-500"
                 required
               />
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !selectedStation || isBelowStripeMinimum}
                 className="rounded-full bg-gradient-to-r from-blue-800 via-violet-700 to-amber-400 px-5 py-3 text-sm font-semibold text-white"
               >
                 {isSubmitting ? "Creating..." : "Create Booking"}
               </button>
             </form>
 
-            {state?.selectedStation ? (
+            {selectedStation ? (
               <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/30 p-4 text-sm text-slate-300">
-                Booking for: <span className="font-semibold text-white">{state.selectedStation.name}</span>
+                Booking for: <span className="font-semibold text-white">{selectedStation.name}</span>
+                <div className="mt-2 text-slate-400">
+                  Price per unit: <span className="font-semibold text-white">{"$"}{selectedStation.pricePerUnit}</span>
+                </div>
+                <div className="mt-2 text-slate-400">
+                  Selected units: <span className="font-semibold text-white">{Math.max(1, Number(bookingForm.units) || 1)}</span>
+                </div>
+                <div className="mt-2 text-slate-400">
+                  Total amount: <span className="font-semibold text-white">{"$"}{computedAmount}</span>
+                </div>
               </div>
             ) : null}
+            {isBelowStripeMinimum ? (
+              <p className="mt-4 text-sm text-amber-300">
+                Stripe checkout for this account needs at least {"$"}{STRIPE_MIN_BOOKING_AMOUNT}. Increase the units to continue.
+              </p>
+            ) : null}
+            {stationLoadError ? <p className="mt-4 text-sm text-rose-300">{stationLoadError}</p> : null}
             {successMessage ? <p className="mt-4 text-sm text-emerald-300">{successMessage}</p> : null}
             {errorMessage ? <p className="mt-4 text-sm text-rose-300">{errorMessage}</p> : null}
           </Card>
@@ -152,7 +287,7 @@ const Bookings = () => {
                       </p>
                     </div>
                   </div>
-                  <p className="mt-3 text-sm text-slate-300">Amount: Rs. {booking.amount}</p>
+                  <p className="mt-3 text-sm text-slate-300">Amount: {"$"}{booking.amount}</p>
 
                   <div className="mt-4 flex flex-wrap gap-3">
                     {booking.status === "booked" ? (
@@ -168,10 +303,26 @@ const Bookings = () => {
                       <button
                         type="button"
                         onClick={() => payBooking(booking)}
+                        disabled={isPaying === booking.id || Number(booking.amount) < STRIPE_MIN_BOOKING_AMOUNT}
                         className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-950"
                       >
-                        Pay Now
+                        {isPaying === booking.id ? "Redirecting..." : "Pay with Stripe"}
                       </button>
+                    ) : null}
+                    {booking.paymentStatus !== "paid" && booking.status === "booked" && (user?.role === "customer" || user?.role === "admin") ? (
+                      <button
+                        type="button"
+                        onClick={() => mockPayBooking(booking)}
+                        disabled={isMockPaying === booking.id}
+                        className="rounded-full border border-emerald-400/30 px-4 py-2 text-sm font-semibold text-emerald-300"
+                      >
+                        {isMockPaying === booking.id ? "Processing..." : "Normal Pay"}
+                      </button>
+                    ) : null}
+                    {Number(booking.amount) < STRIPE_MIN_BOOKING_AMOUNT ? (
+                      <p className="text-sm text-amber-300">
+                        Stripe payment needs at least {"$"}{STRIPE_MIN_BOOKING_AMOUNT}. Create a booking with more units.
+                      </p>
                     ) : null}
                   </div>
                 </div>

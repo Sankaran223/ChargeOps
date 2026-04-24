@@ -68,7 +68,7 @@ const StationDetails = () => {
           <Link to="/stations" className="rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200">
             Back to Stations
           </Link>
-          {station && (user?.role === "customer" || user?.role === "admin") ? (
+          {station && (user?.role === "customer" || user?.role === "admin" || user?.role === "station") ? (
             <button
               type="button"
               onClick={() => navigate("/bookings", { state: { selectedStation: station } })}
@@ -92,7 +92,7 @@ const StationDetails = () => {
                   <p>District: {station.location.district}</p>
                   <p>Locality: {station.location.locality}</p>
                   <p>Charger: {station.chargerType}</p>
-                  <p>Price: Rs. {station.pricePerUnit} / unit</p>
+                  <p>Price: {"$"}{station.pricePerUnit} / unit</p>
                   <p>Available slots: {station.availability.slots}</p>
                 </div>
 

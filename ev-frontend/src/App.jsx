@@ -7,6 +7,7 @@ import Bookings from "./pages/Bookings.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Login from "./pages/Login.jsx";
 import Plans from "./pages/Plans.jsx";
+import PaymentSuccess from "./pages/PaymentSuccess.jsx";
 import Profile from "./pages/Profile.jsx";
 import Register from "./pages/Register.jsx";
 import StationDetails from "./pages/StationDetails.jsx";
@@ -58,6 +59,14 @@ const App = () => {
             element={
               <ProtectedRoute>
                 <Bookings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payment/success"
+            element={
+              <ProtectedRoute>
+                <PaymentSuccess />
               </ProtectedRoute>
             }
           />

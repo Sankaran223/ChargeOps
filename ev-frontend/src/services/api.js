@@ -8,7 +8,7 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("chargeops_token");
+  const token = sessionStorage.getItem("chargeops_token");
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -45,6 +45,8 @@ export const bookingApi = {
 
 export const paymentApi = {
   create: (payload) => api.post("/payments/create", payload),
+  mockPay: (payload) => api.post("/payments/mock-pay", payload),
+  verifyStripeSession: (sessionId) => api.get("/payments/checkout/verify", { params: { session_id: sessionId } }),
   getById: (paymentId) => api.get(`/payments/${paymentId}`)
 };
 
